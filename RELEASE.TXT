@@ -1,0 +1,14 @@
+Release 2.0.6
+-------------
+
+- Added support for version 2.6.20 kernel, work around for schedule_work()
+
+- Fixed bugs where the SCSI host gets removed when the user application crashes even if a device was open.
+
+- Removed hacks to SCSI midlayer as per the advice of scsi mailing list, just make the transport not ready when the last user process exits. 
+
+- Implimented Sense codes and sense code transport between user mode and kernel
+
+- Realized that the module does not get compiled under 2.6.9 and similar version kernel. kmem_cache_t needs to be used for this version.
+
+- Fixed some bugs, if no sense code is returned from user space target, return no-sense

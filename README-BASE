@@ -1,0 +1,129 @@
+Disclaimer
+----------
+
+THIS IS NOT A N OFFICIAL LINUX PROJECT. I am not responsible for any consequence of using this product in this form or modified form. Please use it at your own risk. 
+
+
+What is Virtual SCSI HBA
+------------------------
+
+This is a kernel driver which allows the user programs (Running in user mode) to create, delete and service SCSI low level HBA (LLD). The user program can create and register its own virtual HBA in the kernel through SCSI APIs provided. The user program will be able to service SCSI requests from kernel's SCSI mid layer. 
+
+This project has three parts. 
+
+1. A kernel driver. This is called vscsihba in 'kernel' directory of the tree. 
+
+2. A virtual SCSI API (vscsiapi.c). This is under the 'user' directory of the tree. 
+
+3. A sample SCSI target. This is under the 'user' directory. This is a sample SCSI target running in user space and shows how it interfaces with the kernel driver. This sample SCSI target lets you create a SCSI LUNs from regular files through the kernel driver. The regular files appears as disks and these files holds the image of the disks. This is just one implementation I used to show how it works. But this does not have to be files in the same computer with file IO, but it can be other computer systems in a complex environment with different SCSI transport technologies. 
+
+The kernel driver implemented under kernel's SCSI mid layer. The driver is very generic. It neither iSCSI, nor Fibre Channel. But it can be everything by doing things from user space. The goal is to provide all the functionality in user space which are provided inside the kernel to kernel developers. This prototype shows how we can achieve this. The user space program dictates what kind of technology the HBA uses and people can implement their own SCSI transport technologies. 
+
+The kernel driver installs a character device driver and users this for interface to user applications. The SCSI API from user space talks to kernel driver through this interface. All the SCSI requests on the virtual HBA created are shipped out of kernel SCSI Mid layer to the user space application through this character device and requests are served by application running in user space. It sounds strange, the user application can see every SCSI requests from the kernel SCSI mid layer. 
+
+There are many advantages for this approach. The main advantage is that this can be used for prototyping. A programmer without any knowledge of kernel can write SCSI initiators and targets. It is very flexible and creating disks on a system, replicating the disks, snapshot the disks, copy on write, encryption, etc becomes very very easy. The opportunities are plenty and all can be done from user space. 
+
+
+
+Pre-requisites
+--------------
+
+- Kernel 2.6, preferrabley 2.6.9 or above. There could be some error message during make depending on the kernel version. 
+- Install the kernel header RPMs if it is not already installed. 
+- Installing the kernel sources are preferred. 
+
+
+Directory tree
+--------------
+
+Makefile - Make file to make both kernel driver and user mode programs.
+kernel/hba.c - Implementation of HBA
+kernel/device.c - Charcter device interface to user space.
+kernel/Makefile - Builds the kernel driver, vscsihba.ko
+user/scs.c - A simple SCSI engine
+user/scsi_target.c - A simple SCSI target implementation using above SCSI engine.
+user/vscsiapi.c - The SCSI API interface to kernel.
+user/main.c - Main program which implements and users all of the above.
+include/scsi.h - Header file for SCSI engine.
+include/vscsi.h - Header file shared by both kernel driver and user programs.
+include/vscsihba.c - Header file for the kernel driver.
+
+user/vscsihba.ko - The kernel driver.
+user/vscsitarget - This is the SCSI target implementation which can make a file look like a disk.
+ 
+
+vscsitarget
+-----------
+
+This is simple implementation of the concept explained before. We can make a file to look like a disk to the system. We can have as many of them.
+This implementation can create many virtual HBAs and disks.
+
+Use the following procedure to install the Virtual HBA driver and target.
+
+1) Extract the tar ball.
+
+2) cd vscsihba1
+
+3. Run 'Make' to build the modules and sample SCSI target. Make sure there is no errors during bulld.
+
+4) cd user
+
+5) User start_target to do the job. The usage is given below. Make sure you are in 'vscsihba/user' directory.
+
+start_target.sh id=<id number> -files <file1, file2...>  [-v]
+
+id= : The id number of the SCSI HBA instance. This can be any number between 0 and 255.
+
+-files : The name of the lun files separated by commas. The size of LUN file should in multiple of 2048 blocks(1 block = 512 bytes). 
+Use 'dd if=/dev/zero of= count=' to create file. These file holds the disk image.
+
+-v : Verbose mode of the scsi target user process.
+
+Example: start_target.sh id=0 -files vdiskfile.1 -v
+
+This example will create a Virtual HBA with id=1 and one disk on that HBA. This disk can be used as normal disks. The disk image will be held in vdiskfile.1 file. 
+The id is just an id. If we reuse the id, the driver will not install a new HBA, but it will attach this target as the second engine to the already installed HBA (load sharing/fault tolerance).  I am not sure how beneficial it would be to start more than one target on a HBA. One advantage for sure is fault tolerance when one of the target killed accidentally.
+
+
+
+The SCSI APIs implemented
+-------------------------
+
+This API which is to simplify the interface to kernel driver. Lot of implementation details are hidden if using this APIs. One could use vscsihba.c to compile with their SCSI target implementation. The following APIs are implemented in vscsiha.c.
+
+1. struct user_scsitap_task *register_scsi_host (char *devname) - returns NULL if adding SCSI HBA is unsuccessful.
+
+This registers and installs a Virtual SCSI HBA in the kernel. The devname is the character device name interface to the kernel driver.  The character device can be created using mknod with major number of the kernel driver (cat /proc/devices). The minor number holds the id of the HBA. In the sample SCSI target provided, the start_target.sh automatically creates it.
+
+2. int get_scsi_task(struct user_scsitap_task *task) - Returns 1 if nothing is queued else return 0 with task in the 'task' structure.
+
+This gets a SCSI command which queued on the HBA installed using the above call. 
+
+3. int complete_scsi_task(struct user_scsitap_task *task) - Returns 0 if successful.
+
+This tells the SCSI Midlayer that the SCSI task is completed (The task was captured using get_scsi_task).
+
+4. int receive_scsi_data(struct user_scsitap_task *task) - Returns 0 if successful.
+
+For the SCSI commands which requires data transfer from kernel to SCSI target. This gets the SCSI data on a SCSI command. The task was captured using get_scsi_task.
+
+
+The idea is that once the task is gained from the kernel, the user can implement his own transport/technologies to service the request. No knowledge of complicated kernel programming is not required.
+
+The user_scsitap_task structure
+
+Although it is called a task, it has got information about the SCSI HBA/session and the SCSI task from/to kernel SCSI mid layer.
+
+struct user_scsitap_task {
+     unsigned int cmd_number; - Command number for identfication purpose.
+     unsigned char type; - Type of the command. At the moment only SCSI comamnds implimented, but task management can be there too.
+     unsigned char direction; - Direction of the transfer.
+     unsigned int lun; - Lun number to which the SCSI command is directed.
+     unsigned char cdblen; - Length of the CDB.
+     char cdb[16]; - Holds the CDB from kernel.
+     int request_bufflen; - Data transfer buffer length (Both in/out) .
+     unsigned char *request_buffer; - Holds the transfer data (in/out).
+     int status; - Status of the last processed SCSI command on target.
+     int session; - Session handle, basically holds the file descriptor for the character device name.
+};
+
